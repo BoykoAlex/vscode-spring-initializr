@@ -14,6 +14,9 @@ import { getFromInputBox, openDialogForFolder } from "../Utils/VSCodeUI";
 import { BaseHandler } from "./BaseHandler";
 import { specifyServiceUrl } from "./utils";
 
+const OPEN_IN_NEW_WORKSPACE = "Open";
+const OPEN_IN_CURRENT_WORKSPACE = "Add to Workspace";
+
 export class GenerateProjectHandler extends BaseHandler {
     private serviceUrl: string;
     private artifactId: string;
@@ -76,17 +79,13 @@ export class GenerateProjectHandler extends BaseHandler {
 
         dependencyManager.updateLastUsedDependencies(this.dependencies);
 
-        // Open in new window
-        const hasOpenFolder: boolean = (vscode.workspace.workspaceFolders !== undefined);
-        const candidates: string[] = [
-            "Open",
-            hasOpenFolder ? "Add to Workspace" : undefined,
-        ].filter(Boolean);
-        const choice: string = await vscode.window.showInformationMessage(`Successfully generated. Location: ${this.outputUri.fsPath}`, ...candidates);
-        if (choice === "Open") {
-            vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path.join(this.outputUri.fsPath, this.artifactId)), hasOpenFolder);
-        } else if (choice === "Add to Workspace") {
-            vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders.length, null, { uri: vscode.Uri.file(path.join(this.outputUri.fsPath, this.artifactId)) });
+        const hasOpenFolder = vscode.workspace.workspaceFolders !== undefined;
+        const projectLocation = this.outputUri.fsPath;
+        const choice = await specifyOpenMethod(hasOpenFolder, this.outputUri.fsPath);
+        if (choice === OPEN_IN_NEW_WORKSPACE) {
+            vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path.join(projectLocation, this.artifactId)), hasOpenFolder);
+        } else if (choice === OPEN_IN_CURRENT_WORKSPACE) {
+            vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders.length, null, { uri: vscode.Uri.file(path.join(projectLocation, this.artifactId)) });
         }
     }
 
@@ -145,6 +144,18 @@ async function specifyPackaging(): Promise<string> {
         );
     }
     return packaging && packaging.toLowerCase();
+}
+
+async function specifyOpenMethod(hasOpenFolder: boolean, projectLocation: string): Promise<string> {
+    let openMethod = vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultOpenProjectMethod");
+    if (openMethod !== OPEN_IN_CURRENT_WORKSPACE && openMethod !== OPEN_IN_NEW_WORKSPACE) {
+        const candidates: string[] = [
+            OPEN_IN_NEW_WORKSPACE,
+            hasOpenFolder ? OPEN_IN_CURRENT_WORKSPACE : undefined,
+        ].filter(Boolean);
+        openMethod = await vscode.window.showInformationMessage(`Successfully generated. Location: ${projectLocation}`, ...candidates);
+    }
+    return openMethod;
 }
 
 async function specifyBootVersion(manager: ServiceManager): Promise<string> {
