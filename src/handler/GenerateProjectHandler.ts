@@ -79,14 +79,16 @@ export class GenerateProjectHandler extends BaseHandler {
 
         dependencyManager.updateLastUsedDependencies(this.dependencies);
 
-        const hasOpenFolder = vscode.workspace.workspaceFolders !== undefined;
+        const hasOpenFolder = vscode.workspace.workspaceFolders !== undefined || vscode.workspace.rootPath !== undefined;
         const projectLocation = this.outputUri.fsPath;
         const choice = await specifyOpenMethod(hasOpenFolder, this.outputUri.fsPath);
         if (choice === OPEN_IN_NEW_WORKSPACE) {
             vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(path.join(projectLocation, this.artifactId)), hasOpenFolder);
         } else if (choice === OPEN_IN_CURRENT_WORKSPACE) {
-            if (!vscode.workspace.workspaceFolders.find((workspaceFolder) => workspaceFolder.uri && this.outputUri.fsPath.startsWith(workspaceFolder.uri.fsPath))) {
-                vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders.length, null, { uri: vscode.Uri.file(path.join(projectLocation, this.artifactId)) });
+            if (!vscode.workspace.rootPath || !this.outputUri.fsPath.startsWith(vscode.workspace.rootPath)) {
+                if (!vscode.workspace.workspaceFolders.find((workspaceFolder) => workspaceFolder.uri && this.outputUri.fsPath.startsWith(workspaceFolder.uri.fsPath))) {
+                    vscode.workspace.updateWorkspaceFolders(vscode.workspace.workspaceFolders.length, null, { uri: vscode.Uri.file(path.join(projectLocation, this.artifactId)) });
+                }
             }
         }
     }
