@@ -10,7 +10,6 @@ import {
 } from "vscode-extension-telemetry-wrapper";
 import { EditStartersHandler, GenerateProjectHandler } from "./handler";
 import { getTargetPomXml, loadPackageInfo } from "./Utils";
-import { WizardParams } from "./handler/GenerateProjectHandler";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     await initializeFromJsonFile(context.asAbsolutePath("./package.json"), { firstParty: true });
