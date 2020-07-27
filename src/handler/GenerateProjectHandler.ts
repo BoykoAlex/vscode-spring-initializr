@@ -17,6 +17,17 @@ import { specifyServiceUrl } from "./utils";
 const OPEN_IN_NEW_WORKSPACE = "Open";
 const OPEN_IN_CURRENT_WORKSPACE = "Add to Workspace";
 
+export interface WizardParams {
+    artifactId?: string;
+    groupId?: string;
+    language?: string;
+    projectType?: "maven-project" | "gradle-project";
+    packaging?: string;
+    bootVersion?: string;
+    dependencies?: string[];
+    targetFolder?: string;
+}
+
 export class GenerateProjectHandler extends BaseHandler {
     private serviceUrl: string;
     private artifactId: string;
@@ -29,9 +40,12 @@ export class GenerateProjectHandler extends BaseHandler {
     private outputUri: vscode.Uri;
     private manager: ServiceManager;
 
-    constructor(projectType: "maven-project" | "gradle-project") {
+    private defaults: WizardParams;
+
+    constructor(projectType: "maven-project" | "gradle-project", defaults?: WizardParams) {
         super();
         this.projectType = projectType;
+        this.defaults = defaults || {};
     }
 
     protected get failureMessage(): string {
@@ -46,19 +60,19 @@ export class GenerateProjectHandler extends BaseHandler {
         this.manager = new ServiceManager(this.serviceUrl);
 
         // Step: language
-        this.language = await instrumentOperationStep(operationId, "Language", specifyLanguage)();
+        this.language = await instrumentOperationStep(operationId, "Language", specifyLanguage)(this.defaults);
         if (this.language === undefined) { throw new OperationCanceledError("Language not specified."); }
 
         // Step: Group Id
-        this.groupId = await instrumentOperationStep(operationId, "GroupId", specifyGroupId)();
+        this.groupId = await instrumentOperationStep(operationId, "GroupId", specifyGroupId)(this.defaults);
         if (this.groupId === undefined) { throw new OperationCanceledError("GroupId not specified."); }
 
         // Step: Artifact Id
-        this.artifactId = await instrumentOperationStep(operationId, "ArtifactId", specifyArtifactId)();
+        this.artifactId = await instrumentOperationStep(operationId, "ArtifactId", specifyArtifactId)(this.defaults);
         if (this.artifactId === undefined) { throw new OperationCanceledError("ArtifactId not specified."); }
 
         // Step: Packaging
-        this.packaging = await instrumentOperationStep(operationId, "Packaging", specifyPackaging)();
+        this.packaging = await instrumentOperationStep(operationId, "Packaging", specifyPackaging)(this.defaults);
         if (this.packaging === undefined) { throw new OperationCanceledError("Packaging not specified."); }
 
         // Step: bootVersion
@@ -67,11 +81,11 @@ export class GenerateProjectHandler extends BaseHandler {
         sendInfo(operationId, { bootVersion: this.bootVersion });
 
         // Step: Dependencies
-        this.dependencies = await instrumentOperationStep(operationId, "Dependencies", specifyDependencies)(this.manager, this.bootVersion);
+        this.dependencies = await instrumentOperationStep(operationId, "Dependencies", specifyDependencies)(this.manager, this.bootVersion, this.defaults);
         sendInfo(operationId, { depsType: this.dependencies.itemType, dependencies: this.dependencies.id });
 
         // Step: Choose target folder
-        this.outputUri = await instrumentOperationStep(operationId, "TargetFolder", specifyTargetFolder)(this.artifactId);
+        this.outputUri = await instrumentOperationStep(operationId, "TargetFolder", specifyTargetFolder)(this.defaults, this.artifactId);
         if (this.outputUri === undefined) { throw new OperationCanceledError("Target folder not specified."); }
 
         // Step: Download & Unzip
@@ -108,8 +122,8 @@ export class GenerateProjectHandler extends BaseHandler {
     }
 }
 
-async function specifyLanguage(): Promise<string> {
-    let language: string = vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultLanguage");
+async function specifyLanguage(defaults: WizardParams): Promise<string> {
+    let language: string = defaults.language || vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultLanguage");
     if (!language) {
         language = await vscode.window.showQuickPick(
             ["Java", "Kotlin", "Groovy"],
@@ -119,8 +133,8 @@ async function specifyLanguage(): Promise<string> {
     return language && language.toLowerCase();
 }
 
-async function specifyGroupId(): Promise<string> {
-    const defaultGroupId: string = vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultGroupId");
+async function specifyGroupId(defaults: WizardParams): Promise<string> {
+    const defaultGroupId: string = defaults.groupId || vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultGroupId");
     return await getFromInputBox({
         placeHolder: "e.g. com.example",
         prompt: "Input Group Id for your project.",
@@ -129,8 +143,8 @@ async function specifyGroupId(): Promise<string> {
     });
 }
 
-async function specifyArtifactId(): Promise<string> {
-    const defaultArtifactId: string = vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultArtifactId");
+async function specifyArtifactId(defaults: WizardParams): Promise<string> {
+    const defaultArtifactId: string = defaults.artifactId || vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultArtifactId");
     return await getFromInputBox({
         placeHolder: "e.g. demo",
         prompt: "Input Artifact Id for your project.",
@@ -139,8 +153,8 @@ async function specifyArtifactId(): Promise<string> {
     });
 }
 
-async function specifyPackaging(): Promise<string> {
-    let packaging: string = vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultPackaging");
+async function specifyPackaging(defaults: WizardParams): Promise<string> {
+    let packaging: string = defaults.packaging || vscode.workspace.getConfiguration("spring.initializr").get<string>("defaultPackaging");
     if (!packaging) {
         packaging = await vscode.window.showQuickPick(
             ["JAR", "WAR"],
@@ -171,9 +185,10 @@ async function specifyBootVersion(manager: ServiceManager): Promise<string> {
     return bootVersion && bootVersion.value && bootVersion.value.id;
 }
 
-async function specifyDependencies(manager: ServiceManager, bootVersion: string): Promise<IDependenciesItem> {
+async function specifyDependencies(manager: ServiceManager, bootVersion: string, defaults: WizardParams): Promise<IDependenciesItem> {
     let current: IDependenciesItem = null;
     do {
+        dependencyManager.selectedIds = defaults.dependencies || [];
         current = await vscode.window.showQuickPick(
             dependencyManager.getQuickPickItems(manager, bootVersion, { hasLastSelected: true }),
             { ignoreFocusOut: true, placeHolder: "Search for dependencies.", matchOnDetail: true, matchOnDescription: true },
@@ -188,13 +203,13 @@ async function specifyDependencies(manager: ServiceManager, bootVersion: string)
     return current;
 }
 
-async function specifyTargetFolder(projectName: string): Promise<vscode.Uri> {
+async function specifyTargetFolder(defaults: WizardParams, projectName: string): Promise<vscode.Uri> {
     const OPTION_CONTINUE: string = "Continue";
     const OPTION_CHOOSE_ANOTHER_FOLDER: string = "Choose another folder";
     const LABEL_CHOOSE_FOLDER: string = "Generate into this folder";
     const MESSAGE_EXISTING_FOLDER: string = `A folder [${projectName}] already exists in the selected folder. Continue to overwrite or Choose another folder?`;
 
-    let outputUri: vscode.Uri = await openDialogForFolder({ openLabel: LABEL_CHOOSE_FOLDER });
+    let outputUri: vscode.Uri = defaults.targetFolder ? vscode.Uri.file(defaults.targetFolder) : await openDialogForFolder({ openLabel: LABEL_CHOOSE_FOLDER });
     while (outputUri && await fse.pathExists(path.join(outputUri.fsPath, projectName))) {
         const overrideChoice: string = await vscode.window.showWarningMessage(MESSAGE_EXISTING_FOLDER, OPTION_CONTINUE, OPTION_CHOOSE_ANOTHER_FOLDER);
         if (overrideChoice === OPTION_CHOOSE_ANOTHER_FOLDER) {
